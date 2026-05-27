@@ -84,7 +84,6 @@ const I18N = {
     nav_reports: "📄 Relatórios",
     nav_upload: "📥 Importar",
     nav_history: "Histórico",
-    nav_sites: "📍 Locais",
     // Dashboard
     state_label: "Estado:",
     all: "Todos",
@@ -223,6 +222,7 @@ const I18N = {
     exit_termination: "Demissão/Layoff",
     exit_resignation: "Pediu demissão",
     exit_abandonment: "Abandono",
+    nav_sites: "📍 Locais",
     f_rehire_date: "DATA DE READMISSÃO",
     f_salary_z1c: "SALÁRIO Z1 C ($/hr)",
     f_salary_z1: "SALÁRIO Z1 ($/hr)",
@@ -331,7 +331,6 @@ const I18N = {
     nav_reports: "📄 Reports",
     nav_upload: "📥 Import",
     nav_history: "History",
-    nav_sites: "📍 Sites",
     state_label: "State:",
     all: "All",
     note_filter: "Data filtered for",
@@ -460,6 +459,7 @@ const I18N = {
     exit_termination: "Termination/Layoff",
     exit_resignation: "Resignation",
     exit_abandonment: "Abandonment",
+    nav_sites: "📍 Sites",
     f_rehire_date: "REHIRE DATE",
     f_salary_z1c: "Z1 C SALARY ($/hr)",
     f_salary_z1: "Z1 SALARY ($/hr)",
@@ -673,24 +673,20 @@ function App() {
   React.useEffect(() => {
     setDbStatus("connecting");
     dbLoad().then(data => {
-      // Check if Sheets data has the new fields (phone, email, etc.)
-      // by looking at the first employee that should have them
-      const sheetsHasNewFields = data && data.employees && data.employees.length > 0 &&
-        data.employees.some(e => e.phone || e.email || e.ssn || e.origin);
-
-      if (sheetsHasNewFields) {
-        // Sheets has the new format — use it
+      if (data && data.employees && data.employees.length > 0) {
         setEmployees(data.employees);
         if (data.scheduledTrainings) setScheduledTrainings(data.scheduledTrainings);
         setDbStatus("connected");
         setLastSaved(new Date().toISOString());
-      } else {
-        // Sheets is empty or has old format — push RAW_DATA (the new file)
+      } else if (data && Array.isArray(data.employees)) {
+        // DB is empty - push initial data
         setDbStatus("saving");
-        dbSave({ employees: RAW_DATA.employees, trainings: RAW_DATA.trainings }, "Carga inicial com dados atualizados").then(ok => {
+        dbSave({ employees: RAW_DATA.employees, trainings: RAW_DATA.trainings }, "Carga inicial").then(ok => {
           setDbStatus(ok ? "connected" : "error");
           if (ok) setLastSaved(new Date().toISOString());
         });
+      } else {
+        setDbStatus("error");
       }
     });
   }, []);
@@ -1534,8 +1530,7 @@ function App() {
             e(Field, { label:tr("f_location"), field:"working_site" }),
             e(Field, { label:tr("f_hire_date"), field:"hire_date", ph:"MM/DD/YYYY" }),
             e(Field, { label:tr("f_layoff_date"), field:"lay_off_date", ph:"MM/DD/YYYY" }),
-            // Exit Reason - only show when there's an exit date
-            editEmp.lay_off_date && e("div", {style:{marginBottom:12}},
+            editEmp && editEmp.lay_off_date && e("div", {style:{marginBottom:12}},
               e("label",{style:{fontSize:12,color:"#64748b",fontWeight:600,display:"block",marginBottom:4}}, tr("f_exit_reason")),
               e("select",{
                 style:{...s.sel, width:"100%", padding:"8px 12px"},
@@ -2688,10 +2683,10 @@ function App() {
   }
 
   // ─ HR Dashboard ─
+  // ─ HR Dashboard ─
   function HRDashboard() {
-    // Period state - all from module level to avoid hooks-in-conditions issues
-    const hrPeriodFrom = hr_year;
-    const setPeriodFrom = hr_setYear;
+    // All state from module level — NO local hooks (avoids React #310 error)
+    const hrPeriodFrom = hr_year, setPeriodFrom = hr_setYear;
     const periodFromMonth = hr_fromMonth, setPeriodFromMonth = hr_setFromMonth;
     const periodToYear = hr_toYear, setPeriodToYear = hr_setToYear;
     const periodToMonth = hr_toMonth, setPeriodToMonth = hr_setToMonth;
@@ -2700,7 +2695,7 @@ function App() {
     function parseDateFlexible(s) {
       if (!s) return null;
       const cleaned = String(s).trim();
-      const m = cleaned.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/);
+      const m = cleaned.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
       if (m) { const d = new Date(parseInt(m[3]), parseInt(m[1])-1, parseInt(m[2])); return isNaN(d)?null:d; }
       const m2 = cleaned.match(/^(\d{4})-(\d{2})-(\d{2})/);
       if (m2) { const d = new Date(parseInt(m2[1]), parseInt(m2[2])-1, parseInt(m2[3])); return isNaN(d)?null:d; }
@@ -2708,43 +2703,24 @@ function App() {
       return isNaN(d) ? null : d;
     }
 
-    // Build from/to Date objects
     const fromDate = new Date(hrPeriodFrom, parseInt(periodFromMonth)-1, 1);
     const toDate = new Date(periodToYear, parseInt(periodToMonth)-1, 1);
-    // end of month
     const toDateEnd = new Date(periodToYear, parseInt(periodToMonth), 0, 23, 59, 59);
-
-    // Quick preset buttons
     const currentYear = new Date().getFullYear();
+
     function applyPreset(label) {
       const now = new Date();
-      if (label === "thisYear") {
-        setPeriodFrom(currentYear); setPeriodFromMonth("01"); setPeriodToYear(currentYear); setPeriodToMonth("12");
-      } else if (label === "lastYear") {
-        setPeriodFrom(currentYear-1); setPeriodFromMonth("01"); setPeriodToYear(currentYear-1); setPeriodToMonth("12");
-      } else if (label === "last6") {
-        const s = new Date(now.getFullYear(), now.getMonth()-5, 1);
-        setPeriodFrom(s.getFullYear()); setPeriodFromMonth(String(s.getMonth()+1).padStart(2,"0"));
-        setPeriodToYear(now.getFullYear()); setPeriodToMonth(String(now.getMonth()+1).padStart(2,"0"));
-      } else if (label === "last3") {
-        const s = new Date(now.getFullYear(), now.getMonth()-2, 1);
-        setPeriodFrom(s.getFullYear()); setPeriodFromMonth(String(s.getMonth()+1).padStart(2,"0"));
-        setPeriodToYear(now.getFullYear()); setPeriodToMonth(String(now.getMonth()+1).padStart(2,"0"));
-      } else if (label === "ytd") {
-        setPeriodFrom(currentYear); setPeriodFromMonth("01");
-        setPeriodToYear(now.getFullYear()); setPeriodToMonth(String(now.getMonth()+1).padStart(2,"0"));
-      }
+      if (label === "thisYear") { setPeriodFrom(currentYear); setPeriodFromMonth("01"); setPeriodToYear(currentYear); setPeriodToMonth("12"); }
+      else if (label === "lastYear") { setPeriodFrom(currentYear-1); setPeriodFromMonth("01"); setPeriodToYear(currentYear-1); setPeriodToMonth("12"); }
+      else if (label === "last6") { const s=new Date(now.getFullYear(),now.getMonth()-5,1); setPeriodFrom(s.getFullYear()); setPeriodFromMonth(String(s.getMonth()+1).padStart(2,"0")); setPeriodToYear(now.getFullYear()); setPeriodToMonth(String(now.getMonth()+1).padStart(2,"0")); }
+      else if (label === "last3") { const s=new Date(now.getFullYear(),now.getMonth()-2,1); setPeriodFrom(s.getFullYear()); setPeriodFromMonth(String(s.getMonth()+1).padStart(2,"0")); setPeriodToYear(now.getFullYear()); setPeriodToMonth(String(now.getMonth()+1).padStart(2,"0")); }
+      else if (label === "ytd") { setPeriodFrom(currentYear); setPeriodFromMonth("01"); setPeriodToYear(now.getFullYear()); setPeriodToMonth(String(now.getMonth()+1).padStart(2,"0")); }
     }
 
-    // Months in period
     const monthsInPeriod = [];
     let cur = new Date(fromDate);
-    while (cur <= toDate) {
-      monthsInPeriod.push({ year: cur.getFullYear(), month: cur.getMonth() });
-      cur = new Date(cur.getFullYear(), cur.getMonth()+1, 1);
-    }
+    while (cur <= toDate) { monthsInPeriod.push({ year: cur.getFullYear(), month: cur.getMonth() }); cur = new Date(cur.getFullYear(), cur.getMonth()+1, 1); }
 
-    // Count hires and layoffs per month in period
     const hiresByMonth = monthsInPeriod.map(() => 0);
     const layoffsByMonth = monthsInPeriod.map(() => 0);
     const hiredEmps = [], laidOffEmps = [], activeInPeriod = [];
@@ -2755,37 +2731,30 @@ function App() {
       if (h && h >= fromDate && h <= toDateEnd) {
         const idx = monthsInPeriod.findIndex(m => m.year===h.getFullYear() && m.month===h.getMonth());
         if (idx>=0) hiresByMonth[idx]++;
-        totalHires++;
-        hiredEmps.push(emp);
+        totalHires++; hiredEmps.push(emp);
       }
-      const l = parseDateFlexible(emp.lay_off_date);
       const matchesReason = exitReasonFilter === "ALL" || emp.exit_reason === exitReasonFilter;
+      const l = parseDateFlexible(emp.lay_off_date);
       if (l && l >= fromDate && l <= toDateEnd && matchesReason) {
         const idx = monthsInPeriod.findIndex(m => m.year===l.getFullYear() && m.month===l.getMonth());
         if (idx>=0) layoffsByMonth[idx]++;
-        totalLayoffs++;
-        laidOffEmps.push(emp);
+        totalLayoffs++; laidOffEmps.push(emp);
       }
-      // Active during any part of period
       const hd = parseDateFlexible(emp.hire_date);
       const ld = parseDateFlexible(emp.lay_off_date);
-      const startedBefore = hd && hd <= toDateEnd;
-      const endedAfter = !ld || ld >= fromDate;
-      if (startedBefore && endedAfter) activeInPeriod.push(emp);
+      if (hd && hd <= toDateEnd && (!ld || ld >= fromDate)) activeInPeriod.push(emp);
     });
 
     const totalEmps = employees.length;
     const activeNow = employees.filter(e => e.contract_status === "ACTIVE").length;
-    const avgHeadcount = activeInPeriod.length;
-    const turnoverRate = avgHeadcount > 0 ? (totalLayoffs / avgHeadcount * 100).toFixed(1) : "0.0";
-    const hireRate = avgHeadcount > 0 ? (totalHires / avgHeadcount * 100).toFixed(1) : "0.0";
+    const avgHeadcount = activeInPeriod.length || 1;
+    const turnoverRate = (totalLayoffs / avgHeadcount * 100).toFixed(1);
+    const hireRate = (totalHires / avgHeadcount * 100).toFixed(1);
     const avgHires = monthsInPeriod.length > 0 ? (totalHires / monthsInPeriod.length).toFixed(1) : "0";
     const avgLayoffs = monthsInPeriod.length > 0 ? (totalLayoffs / monthsInPeriod.length).toFixed(1) : "0";
-
     const monthNames = CURRENT_LANG === "en"
       ? ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
       : ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
-
     const years = Array.from({length:10},(_,i)=>currentYear-i);
     const months = ["01","02","03","04","05","06","07","08","09","10","11","12"];
 
@@ -2796,9 +2765,9 @@ function App() {
       return e("div",{style:{overflowX:"auto"}},
         e("div",{style:{display:"grid",gridTemplateColumns:`repeat(${cols},minmax(28px,1fr))`,gap:4,alignItems:"end",height:140,minWidth:cols*32}},
           ...data.slice(0,cols).map((v,i) => e("div",{key:i,style:{display:"flex",flexDirection:"column",alignItems:"center",gap:2}},
-            e("div",{style:{fontSize:10,color:"#e2e8f0",fontWeight:700,minHeight:14,textAlign:"center"}}, v>0?v:""),
-            e("div",{style:{width:"100%",height:Math.max(4,(v/max)*100)+"px",background:color,borderRadius:"3px 3px 0 0",opacity:v>0?1:0.15,transition:"height 0.3s"}}),
-            e("div",{style:{fontSize:9,color:"#64748b",textAlign:"center",lineHeight:1.2}}, labels[i]||"")
+            e("div",{style:{fontSize:10,color:"#e2e8f0",fontWeight:700,minHeight:14}}, v>0?v:""),
+            e("div",{style:{width:"100%",height:Math.max(4,(v/max)*100)+"px",background:color,borderRadius:"3px 3px 0 0",opacity:v>0?1:0.15}}),
+            e("div",{style:{fontSize:9,color:"#64748b",textAlign:"center"}}, labels[i]||"")
           ))
         )
       );
@@ -2806,16 +2775,10 @@ function App() {
 
     function EmpMiniList({ emps, color }) {
       if (!emps.length) return e("div",{style:{color:"#64748b",fontSize:12}},"—");
-      return e("div",{style:{maxHeight:200,overflowY:"auto"}},
-        ...emps.map(emp => e("div",{key:emp.name,style:{
-          display:"flex",justifyContent:"space-between",alignItems:"center",
-          padding:"6px 0",borderBottom:"1px solid #263348",cursor:"pointer",fontSize:13
-        },onClick:()=>openEmp(emp)},
+      return e("div",{style:{maxHeight:180,overflowY:"auto"}},
+        ...emps.map(emp => e("div",{key:emp.name,style:{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:"1px solid #263348",cursor:"pointer",fontSize:13},onClick:()=>openEmp(emp)},
           e("span",{style:{fontWeight:600,color}},emp.name),
-          e("div",{style:{textAlign:"right",fontSize:11,color:"#64748b"}},
-            e("div",null,emp.working_site||"—"),
-            e("div",null,emp.state||"")
-          )
+          e("span",{style:{fontSize:11,color:"#64748b"}},emp.working_site||emp.state||"—")
         ))
       );
     }
@@ -2825,154 +2788,83 @@ function App() {
     return e("div",null,
       e("h2",{style:s.h2}, tr("hr_title")),
 
-      // ── Overall stat cards ──
+      // Overall stats
       e("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:12,marginBottom:20}},
-        e("div",{style:{...s.card,marginBottom:0,textAlign:"center"}},
-          e("div",{style:{fontSize:32,fontWeight:800,color:"#38bdf8"}}, totalEmps),
-          e("div",{style:{fontSize:12,color:"#94a3b8",marginTop:4}}, tr("hr_total_emps"))
+        e("div",{style:{...s.card,marginBottom:0,textAlign:"center"}}, e("div",{style:{fontSize:32,fontWeight:800,color:"#38bdf8"}},totalEmps), e("div",{style:{fontSize:12,color:"#94a3b8",marginTop:4}},tr("hr_total_emps"))),
+        e("div",{style:{...s.card,marginBottom:0,textAlign:"center"}}, e("div",{style:{fontSize:32,fontWeight:800,color:"#22c55e"}},activeNow), e("div",{style:{fontSize:12,color:"#94a3b8",marginTop:4}},tr("hr_active"))),
+        e("div",{style:{...s.card,marginBottom:0,textAlign:"center"}}, e("div",{style:{fontSize:32,fontWeight:800,color:"#94a3b8"}},totalEmps-activeNow), e("div",{style:{fontSize:12,color:"#94a3b8",marginTop:4}},tr("hr_inactive"))),
+        e("div",{style:{...s.card,marginBottom:0,textAlign:"center"}}, e("div",{style:{fontSize:32,fontWeight:800,color:parseFloat(turnoverRate)>30?"#ef4444":"#f59e0b"}},turnoverRate+"%"), e("div",{style:{fontSize:12,color:"#94a3b8",marginTop:4}},tr("hr_turnover_rate")))
+      ),
+
+      // Period selector
+      e("div",{style:{...s.card,marginBottom:16}},
+        e("div",{style:{fontWeight:700,fontSize:14,marginBottom:12,color:"#38bdf8"}},"📅 Período de análise"),
+        e("div",{style:{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}},
+          ...[["thisYear","Ano atual"],["lastYear","Ano anterior"],["ytd","Jan → Hoje"],["last6","Últimos 6 meses"],["last3","Últimos 3 meses"]].map(([k,l]) =>
+            e("button",{key:k,style:{padding:"5px 12px",borderRadius:20,border:"1px solid #334155",background:"#0f172a",color:"#94a3b8",cursor:"pointer",fontWeight:600,fontSize:12},
+              onMouseEnter:ev=>ev.currentTarget.style.borderColor="#38bdf8",
+              onMouseLeave:ev=>ev.currentTarget.style.borderColor="#334155",
+              onClick:()=>applyPreset(k)},l)
+          )
         ),
-        e("div",{style:{...s.card,marginBottom:0,textAlign:"center"}},
-          e("div",{style:{fontSize:32,fontWeight:800,color:"#22c55e"}}, activeNow),
-          e("div",{style:{fontSize:12,color:"#94a3b8",marginTop:4}}, tr("hr_active"))
-        ),
-        e("div",{style:{...s.card,marginBottom:0,textAlign:"center"}},
-          e("div",{style:{fontSize:32,fontWeight:800,color:"#94a3b8"}}, totalEmps-activeNow),
-          e("div",{style:{fontSize:12,color:"#94a3b8",marginTop:4}}, tr("hr_inactive"))
-        ),
-        e("div",{style:{...s.card,marginBottom:0,textAlign:"center"}},
-          e("div",{style:{fontSize:32,fontWeight:800,color:parseFloat(turnoverRate)>30?"#ef4444":"#f59e0b"}}, turnoverRate+"%"),
-          e("div",{style:{fontSize:12,color:"#94a3b8",marginTop:4}}, tr("hr_turnover_rate"))
+        e("div",{style:{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}},
+          e("span",{style:{color:"#94a3b8",fontSize:13,fontWeight:600}},"De:"),
+          e("select",{style:selStyle,value:periodFromMonth,onChange:ev=>setPeriodFromMonth(ev.target.value)}, ...months.map(m=>e("option",{key:m,value:m},monthNames[parseInt(m)-1]))),
+          e("select",{style:selStyle,value:hrPeriodFrom,onChange:ev=>setPeriodFrom(parseInt(ev.target.value))}, ...years.map(y=>e("option",{key:y,value:y},y))),
+          e("span",{style:{color:"#94a3b8",fontSize:13,fontWeight:600,marginLeft:8}},"Até:"),
+          e("select",{style:selStyle,value:periodToMonth,onChange:ev=>setPeriodToMonth(ev.target.value)}, ...months.map(m=>e("option",{key:m,value:m},monthNames[parseInt(m)-1]))),
+          e("select",{style:selStyle,value:periodToYear,onChange:ev=>setPeriodToYear(parseInt(ev.target.value))}, ...years.map(y=>e("option",{key:y,value:y},y))),
+          e("span",{style:{marginLeft:12,padding:"4px 14px",borderRadius:8,background:"#1e3a52",border:"1px solid #38bdf8",color:"#38bdf8",fontSize:12,fontWeight:700}},monthsInPeriod.length+(CURRENT_LANG==="en"?" months":" meses"))
         )
       ),
 
-      // ── Period selector ──
+      // Period stats
+      e("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:12,marginBottom:16}},
+        e("div",{style:{...s.card,marginBottom:0,textAlign:"center",border:"1px solid #22c55e"}}, e("div",{style:{fontSize:36,fontWeight:800,color:"#22c55e"}},totalHires), e("div",{style:{fontSize:12,color:"#94a3b8",marginTop:4}},CURRENT_LANG==="en"?"Hires in period":"Admissões no período"), e("div",{style:{fontSize:11,color:"#64748b",marginTop:2}},"média/mês: "+avgHires)),
+        e("div",{style:{...s.card,marginBottom:0,textAlign:"center",border:"1px solid #ef4444"}}, e("div",{style:{fontSize:36,fontWeight:800,color:"#ef4444"}},totalLayoffs), e("div",{style:{fontSize:12,color:"#94a3b8",marginTop:4}},CURRENT_LANG==="en"?"Exits in period":"Saídas no período"), e("div",{style:{fontSize:11,color:"#64748b",marginTop:2}},"média/mês: "+avgLayoffs)),
+        e("div",{style:{...s.card,marginBottom:0,textAlign:"center",border:"1px solid #38bdf8"}}, e("div",{style:{fontSize:36,fontWeight:800,color:"#38bdf8"}},hireRate+"%"), e("div",{style:{fontSize:12,color:"#94a3b8",marginTop:4}},CURRENT_LANG==="en"?"Hire rate":"Taxa de admissão")),
+        e("div",{style:{...s.card,marginBottom:0,textAlign:"center",border:"1px solid #f59e0b"}}, e("div",{style:{fontSize:36,fontWeight:800,color:parseFloat(turnoverRate)>30?"#ef4444":"#f59e0b"}},turnoverRate+"%"), e("div",{style:{fontSize:12,color:"#94a3b8",marginTop:4}},CURRENT_LANG==="en"?"Turnover rate":"Taxa de rotatividade"), e("div",{style:{fontSize:11,color:"#64748b",marginTop:2}},"sobre headcount médio"))
+      ),
+
+      // Exit reason filter
       e("div",{style:{...s.card,marginBottom:16}},
-        e("div",{style:{fontWeight:700,fontSize:14,marginBottom:12,color:"#38bdf8"}},"📅 Período de análise"),
-
-        // Preset buttons
-        e("div",{style:{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}},
-          ...([
-            ["thisYear","Ano atual"],["lastYear","Ano anterior"],
-            ["ytd","Jan → Hoje"],["last6","Últimos 6 meses"],["last3","Últimos 3 meses"]
-          ].map(([k,l]) => e("button",{key:k,
-            style:{padding:"5px 12px",borderRadius:20,border:"1px solid #334155",
-              background:"#0f172a",color:"#94a3b8",cursor:"pointer",fontWeight:600,fontSize:12},
-            onMouseEnter:ev=>ev.currentTarget.style.borderColor="#38bdf8",
-            onMouseLeave:ev=>ev.currentTarget.style.borderColor="#334155",
-            onClick:()=>applyPreset(k)
-          }, l)))
-        ),
-
-        // Custom from/to
-        e("div",{style:{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}},
-          e("span",{style:{color:"#94a3b8",fontSize:13,fontWeight:600}},"De:"),
-          e("select",{style:selStyle,value:periodFromMonth,onChange:ev=>setPeriodFromMonth(ev.target.value)},
-            ...months.map(m=>e("option",{key:m,value:m},monthNames[parseInt(m)-1]))
-          ),
-          e("select",{style:selStyle,value:hrPeriodFrom,onChange:ev=>setPeriodFrom(parseInt(ev.target.value))},
-            ...years.map(y=>e("option",{key:y,value:y},y))
-          ),
-          e("span",{style:{color:"#94a3b8",fontSize:13,fontWeight:600,marginLeft:8}},"Até:"),
-          e("select",{style:selStyle,value:periodToMonth,onChange:ev=>setPeriodToMonth(ev.target.value)},
-            ...months.map(m=>e("option",{key:m,value:m},monthNames[parseInt(m)-1]))
-          ),
-          e("select",{style:selStyle,value:periodToYear,onChange:ev=>setPeriodToYear(parseInt(ev.target.value))},
-            ...years.map(y=>e("option",{key:y,value:y},y))
-          ),
-          e("span",{style:{
-            marginLeft:12,padding:"4px 14px",borderRadius:8,
-            background:"#1e3a52",border:"1px solid #38bdf8",
-            color:"#38bdf8",fontSize:12,fontWeight:700
-          }},
-            monthsInPeriod.length + (CURRENT_LANG==="en"?" months":" meses")
+        e("div",{style:{fontWeight:700,fontSize:13,marginBottom:10,color:"#94a3b8"}},CURRENT_LANG==="en"?"Filter exits by reason:":"Filtrar saídas por motivo:"),
+        e("div",{style:{display:"flex",gap:8,flexWrap:"wrap"}},
+          ...[["ALL",CURRENT_LANG==="en"?"All exits":"Todos"],["termination",tr("exit_termination")],["resignation",tr("exit_resignation")],["abandonment",tr("exit_abandonment")]].map(([v,l]) =>
+            e("button",{key:v,style:{padding:"6px 16px",borderRadius:20,cursor:"pointer",fontWeight:600,fontSize:12,border:exitReasonFilter===v?"none":"1px solid #334155",background:exitReasonFilter===v?"#38bdf8":"#1e293b",color:exitReasonFilter===v?"#0f172a":"#94a3b8"},onClick:()=>setExitReasonFilter(v)},l)
           )
         )
       ),
 
-      // ── Period stats ──
-      e("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:12,marginBottom:16}},
-        e("div",{style:{...s.card,marginBottom:0,textAlign:"center",border:"1px solid #22c55e"}},
-          e("div",{style:{fontSize:36,fontWeight:800,color:"#22c55e"}}, totalHires),
-          e("div",{style:{fontSize:12,color:"#94a3b8",marginTop:4}},CURRENT_LANG==="en"?"Hires in period":"Admissões no período"),
-          e("div",{style:{fontSize:11,color:"#64748b",marginTop:2}},CURRENT_LANG==="en"?"avg/month":"média/mês"+" "+avgHires)
-        ),
-        e("div",{style:{...s.card,marginBottom:0,textAlign:"center",border:"1px solid #ef4444"}},
-          e("div",{style:{fontSize:36,fontWeight:800,color:"#ef4444"}}, totalLayoffs),
-          e("div",{style:{fontSize:12,color:"#94a3b8",marginTop:4}},CURRENT_LANG==="en"?"Layoffs in period":"Demissões no período"),
-          e("div",{style:{fontSize:11,color:"#64748b",marginTop:2}},CURRENT_LANG==="en"?"avg/month":"média/mês"+" "+avgLayoffs)
-        ),
-        e("div",{style:{...s.card,marginBottom:0,textAlign:"center",border:"1px solid #38bdf8"}},
-          e("div",{style:{fontSize:36,fontWeight:800,color:"#38bdf8"}}, hireRate+"%"),
-          e("div",{style:{fontSize:12,color:"#94a3b8",marginTop:4}},CURRENT_LANG==="en"?"Hire rate":"Taxa de admissão")
-        ),
-        e("div",{style:{...s.card,marginBottom:0,textAlign:"center",border:"1px solid #f59e0b"}},
-          e("div",{style:{fontSize:36,fontWeight:800,color:parseFloat(turnoverRate)>30?"#ef4444":"#f59e0b"}}, turnoverRate+"%"),
-          e("div",{style:{fontSize:12,color:"#94a3b8",marginTop:4}},CURRENT_LANG==="en"?"Turnover rate":"Taxa de rotatividade"),
-          e("div",{style:{fontSize:11,color:"#64748b",marginTop:2}},CURRENT_LANG==="en"?"vs avg headcount":"sobre headcount médio")
-        )
-      ),
-
-      // ── Exit Reason Filter ──
-      e("div",{style:{...s.card,marginBottom:16}},
-        e("div",{style:{fontWeight:700,fontSize:13,marginBottom:10,color:"#94a3b8"}},
-          CURRENT_LANG==="en"?"Filter exits by reason:":"Filtrar saídas por motivo:"
-        ),
-        e("div",{style:{display:"flex",gap:8,flexWrap:"wrap"}},
-          ...[
-            ["ALL", CURRENT_LANG==="en"?"All exits":"Todos"],
-            ["termination", tr("exit_termination")],
-            ["resignation", tr("exit_resignation")],
-            ["abandonment", tr("exit_abandonment")]
-          ].map(([v,l]) => e("button",{key:v,
-            style:{padding:"6px 16px",borderRadius:20,border:"none",cursor:"pointer",fontWeight:600,fontSize:12,
-              background: exitReasonFilter===v ? "#38bdf8" : "#1e293b",
-              color: exitReasonFilter===v ? "#0f172a" : "#94a3b8",
-              border: exitReasonFilter===v ? "none" : "1px solid #334155"
-            },
-            onClick:()=>setExitReasonFilter(v)
-          }, l))
-        )
-      ),
-
-      // ── Hires chart ──
+      // Hires chart
       e("div",{style:s.card},
-        e("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}},
-          e("div",{style:{fontWeight:700,fontSize:15,color:"#22c55e"}},
-            CURRENT_LANG==="en"?"Hires by month":"Admissões por mês"
-          ),
+        e("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}},
+          e("div",{style:{fontWeight:700,fontSize:15,color:"#22c55e"}},CURRENT_LANG==="en"?"Hires by month":"Admissões por mês"),
           e("span",{style:{color:"#94a3b8",fontSize:12}},totalHires+" total")
         ),
-        totalHires>0 ? e(BarChart,{data:hiresByMonth,color:"#22c55e"})
-          : e("div",{style:{color:"#64748b",padding:20,textAlign:"center"}},tr("hr_no_data")),
+        totalHires>0 ? e(BarChart,{data:hiresByMonth,color:"#22c55e"}) : e("div",{style:{color:"#64748b",padding:20,textAlign:"center"}},tr("hr_no_data")),
         totalHires>0 && e("div",{style:{marginTop:14,borderTop:"1px solid #334155",paddingTop:12}},
-          e("div",{style:{fontWeight:600,fontSize:12,color:"#64748b",marginBottom:8}},
-            CURRENT_LANG==="en"?"Employees hired in period:":"Funcionários admitidos no período:"
-          ),
+          e("div",{style:{fontWeight:600,fontSize:12,color:"#64748b",marginBottom:8}},CURRENT_LANG==="en"?"Hired in period:":"Admitidos no período:"),
           e(EmpMiniList,{emps:hiredEmps,color:"#22c55e"})
         )
       ),
 
-      // ── Layoffs chart ──
+      // Exits chart
       e("div",{style:s.card},
-        e("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}},
-          e("div",{style:{fontWeight:700,fontSize:15,color:"#ef4444"}},
-            CURRENT_LANG==="en"?"Layoffs by month":"Demissões por mês"
-          ),
+        e("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}},
+          e("div",{style:{fontWeight:700,fontSize:15,color:"#ef4444"}},CURRENT_LANG==="en"?"Exits by month":"Saídas por mês"),
           e("span",{style:{color:"#94a3b8",fontSize:12}},totalLayoffs+" total")
         ),
-        totalLayoffs>0 ? e(BarChart,{data:layoffsByMonth,color:"#ef4444"})
-          : e("div",{style:{color:"#64748b",padding:20,textAlign:"center"}},tr("hr_no_data")),
+        totalLayoffs>0 ? e(BarChart,{data:layoffsByMonth,color:"#ef4444"}) : e("div",{style:{color:"#64748b",padding:20,textAlign:"center"}},tr("hr_no_data")),
         totalLayoffs>0 && e("div",{style:{marginTop:14,borderTop:"1px solid #334155",paddingTop:12}},
-          e("div",{style:{fontWeight:600,fontSize:12,color:"#64748b",marginBottom:8}},
-            CURRENT_LANG==="en"?"Employees laid off in period:":"Funcionários demitidos no período:"
-          ),
+          e("div",{style:{fontWeight:600,fontSize:12,color:"#64748b",marginBottom:8}},CURRENT_LANG==="en"?"Exited in period:":"Saíram no período:"),
           e(EmpMiniList,{emps:laidOffEmps,color:"#ef4444"})
         )
       )
     );
   }
 
-  // ─ Site Manager (Locais de Trabalho) ─
+  // ─ Site Manager ─
   function SiteManager() {
     const siteSearch = site_search, setSiteSearch = site_setSearch;
     const siteStatusFilter = site_statusFilter, setSiteStatusFilter = site_setStatusFilter;
@@ -2983,84 +2875,57 @@ function App() {
     const historyEmp = site_historyEmp, setHistoryEmp = site_setHistoryEmp;
     const savedMsg = site_savedMsg, setSavedMsg = site_setSavedMsg;
 
-    const knownSites = (() => {
-      const s = new Set(employees.map(e=>e.working_site).filter(x=>x&&x!=="NOT FOUND"&&x!==""));
-      return [...s].sort();
-    })();
+    const knownSites = [...new Set(employees.map(e=>e.working_site).filter(x=>x&&x!=="NOT FOUND"&&x!==""))].sort();
 
     const filtered = employees.filter(emp => {
       if (siteStatusFilter !== "ALL" && emp.contract_status !== siteStatusFilter) return false;
-      if (siteSearch) {
-        const q = siteSearch.toLowerCase();
-        return emp.name.toLowerCase().includes(q) || (emp.working_site||"").toLowerCase().includes(q);
-      }
+      if (siteSearch) { const q = siteSearch.toLowerCase(); return emp.name.toLowerCase().includes(q)||(emp.working_site||"").toLowerCase().includes(q); }
       return true;
     });
-
-    function updateSite(empName, newSite) {
-      setEditingRows(p => ({...p, [empName]: newSite}));
-    }
 
     function saveSite(emp) {
       const newSite = editingRows[emp.name] ?? emp.working_site;
       if (newSite === emp.working_site) { setEditingRows(p=>{const n={...p};delete n[emp.name];return n;}); return; }
-      const oldSite = emp.working_site;
-      const historyEntry = { date: new Date().toISOString().slice(0,10), from: oldSite||"—", to: newSite||"—" };
-      setEmployees(prev => prev.map(e => {
-        if (e.name !== emp.name) return e;
-        const siteHistory = [...(e.site_history||[]), historyEntry];
-        return {...e, working_site: newSite, site_history: siteHistory};
-      }));
+      const historyEntry = { date: new Date().toISOString().slice(0,10), from: emp.working_site||"—", to: newSite||"—" };
+      setEmployees(prev => prev.map(e => e.name!==emp.name?e:{...e,working_site:newSite,site_history:[...(e.site_history||[]),historyEntry]}));
       setEditingRows(p=>{const n={...p};delete n[emp.name];return n;});
-      setSavedMsg(emp.name + " → " + (newSite||"—"));
-      setTimeout(()=>setSavedMsg(""),3000);
+      setSavedMsg(emp.name+" → "+(newSite||"—")); setTimeout(()=>setSavedMsg(""),3000);
     }
 
     function saveAll() {
-      const names = Object.keys(editingRows);
-      if (!names.length) return;
+      const names = Object.keys(editingRows); if (!names.length) return;
       setEmployees(prev => prev.map(emp => {
         if (!editingRows.hasOwnProperty(emp.name)) return emp;
         const newSite = editingRows[emp.name];
         if (newSite === emp.working_site) return emp;
         const historyEntry = { date: new Date().toISOString().slice(0,10), from: emp.working_site||"—", to: newSite||"—" };
-        const siteHistory = [...(emp.site_history||[]), historyEntry];
-        return {...emp, working_site: newSite, site_history: siteHistory};
+        return {...emp,working_site:newSite,site_history:[...(emp.site_history||[]),historyEntry]};
       }));
-      setEditingRows({});
-      setSavedMsg(names.length + " funcionário(s) atualizados");
-      setTimeout(()=>setSavedMsg(""),3000);
+      setEditingRows({}); setSavedMsg(names.length+" local(is) atualizados"); setTimeout(()=>setSavedMsg(""),4000);
     }
 
-    // Excel upload for bulk site update
     async function processFile(file) {
       setProcessing(true); setUploadResults(null);
       try {
-        // Dynamically load SheetJS
         let XLSX = window.XLSX;
         if (!XLSX) {
-          await new Promise((res,rej)=>{
-            const s=document.createElement("script");
-            s.src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js";
-            s.onload=res; s.onerror=rej; document.head.appendChild(s);
-          });
+          await new Promise((res,rej)=>{const s=document.createElement("script");s.src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js";s.onload=res;s.onerror=rej;document.head.appendChild(s);});
           XLSX = window.XLSX;
         }
         const buf = await file.arrayBuffer();
-        const wb = XLSX.read(buf, {type:"array"});
+        const wb = XLSX.read(buf,{type:"array"});
         const ws = wb.Sheets[wb.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json(ws, {defval:null});
-
-        const updates=[], notFound=[], noChange=[], errors=[];
+        const rows = XLSX.utils.sheet_to_json(ws,{defval:null});
+        const updates=[],notFound=[],noChange=[],errors=[];
         for (const row of rows) {
           const name = String(row["Name"]||row["name"]||row["NOME"]||row["Nome"]||"").trim();
           const site = String(row["Working Site"]||row["working_site"]||row["Local"]||row["Site"]||"").trim();
-          const date = String(row["Date"]||row["Data"]||row["date"]||"").trim() || new Date().toISOString().slice(0,10);
+          const date = String(row["Date"]||row["Data"]||row["date"]||"").trim()||new Date().toISOString().slice(0,10);
           if (!name) { errors.push("Linha sem nome"); continue; }
           const emp = employees.find(e=>e.name.toLowerCase()===name.toLowerCase());
           if (!emp) { notFound.push(name); continue; }
           if (emp.working_site===site) { noChange.push(name); continue; }
-          updates.push({name, oldSite:emp.working_site||"—", newSite:site, date});
+          updates.push({name,oldSite:emp.working_site||"—",newSite:site,date});
         }
         setUploadResults({updates,notFound,noChange,errors});
       } catch(err) { setUploadResults({error:String(err)}); }
@@ -3072,33 +2937,14 @@ function App() {
       setEmployees(prev => prev.map(emp => {
         const upd = uploadResults.updates.find(u=>u.name.toLowerCase()===emp.name.toLowerCase());
         if (!upd) return emp;
-        const historyEntry = {date:upd.date, from:upd.oldSite, to:upd.newSite};
-        return {...emp, working_site:upd.newSite, site_history:[...(emp.site_history||[]),historyEntry]};
+        return {...emp,working_site:upd.newSite,site_history:[...(emp.site_history||[]),{date:upd.date,from:upd.oldSite,to:upd.newSite}]};
       }));
-      setSavedMsg(uploadResults.updates.length+" locais atualizados via upload!");
-      setTimeout(()=>setSavedMsg(""),4000);
-      setUploadResults(null);
+      setSavedMsg(uploadResults.updates.length+" locais atualizados!"); setTimeout(()=>setSavedMsg(""),4000); setUploadResults(null);
     }
 
     function downloadTemplate() {
-      let XLSX = window.XLSX;
-      const aoa = [
-        ["Name","Working Site","Date"],
-        ["João da Silva","Riverhead","2025-05-26"],
-        ["Maria Souza","Warren Center","2025-05-26"]
-      ];
-      if (XLSX) {
-        const wb = XLSX.utils.book_new();
-        const ws = XLSX.utils.aoa_to_sheet(aoa);
-        XLSX.utils.book_append_sheet(wb,ws,"Sites");
-        XLSX.writeFile(wb,"template_locais.xlsx");
-      } else {
-        // fallback: CSV
-        const csv = aoa.map(r=>r.join(",")).join("\n");
-        const a=document.createElement("a");
-        a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(csv);
-        a.download="template_locais.csv"; a.click();
-      }
+      const csv = "Name,Working Site,Date\nJoao da Silva,Riverhead,2025-05-26\nMaria Souza,Warren Center,2025-05-26";
+      const a=document.createElement("a"); a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(csv); a.download="template_locais.csv"; a.click();
     }
 
     const pendingCount = Object.keys(editingRows).length;
@@ -3108,177 +2954,103 @@ function App() {
         e("h2",{style:s.h2},"📍 "+(CURRENT_LANG==="en"?"Work Site Manager":"Gerenciador de Locais")),
         e("div",{style:{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}},
           savedMsg && e("span",{style:{color:"#22c55e",fontSize:13,fontWeight:600}},"✓ "+savedMsg),
-          pendingCount>0 && e("button",{style:s.btn("success"),onClick:saveAll},
-            "💾 Salvar todos ("+pendingCount+")"
-          )
+          pendingCount>0 && e("button",{style:s.btn("success"),onClick:saveAll},"💾 Salvar todos ("+pendingCount+")")
         )
       ),
 
-      // ── Upload section ──
+      // Upload section
       e("div",{style:{...s.card,marginBottom:16}},
         e("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}},
-          e("div",{style:{fontWeight:700,fontSize:14}},
-            "📥 "+(CURRENT_LANG==="en"?"Bulk upload":"Upload em massa")
-          ),
-          e("button",{style:{...s.btn(),fontSize:12,padding:"6px 14px"},onClick:downloadTemplate},
-            "📄 "+(CURRENT_LANG==="en"?"Download template":"Baixar planilha modelo")
-          )
+          e("div",{style:{fontWeight:700,fontSize:14}},"📥 Upload em massa"),
+          e("button",{style:{...s.btn(),fontSize:12,padding:"6px 14px"},onClick:downloadTemplate},"📄 Baixar modelo CSV")
         ),
-        e("div",{style:{color:"#64748b",fontSize:12,marginBottom:10,lineHeight:1.6}},
-          "Planilha com colunas: ",
-          e("strong",{style:{color:"#e2e8f0"}},"Name"),", ",
-          e("strong",{style:{color:"#e2e8f0"}},"Working Site"),", ",
-          e("strong",{style:{color:"#e2e8f0"}},"Date"),
-          " (opcional — padrão: hoje)"
+        e("div",{style:{color:"#64748b",fontSize:12,marginBottom:10}},
+          "Planilha com colunas: ",e("strong",{style:{color:"#e2e8f0"}},"Name"),", ",e("strong",{style:{color:"#e2e8f0"}},"Working Site"),", ",e("strong",{style:{color:"#e2e8f0"}},"Date")," (opcional)"
         ),
         e("div",{
-          style:{
-            border:`2px dashed ${dragOver?"#38bdf8":"#334155"}`,
-            borderRadius:10,padding:"24px 20px",textAlign:"center",
-            background:dragOver?"#0f2744":"transparent",cursor:"pointer",transition:"all 0.2s"
-          },
-          onDragOver:ev=>{ev.preventDefault();setDragOver(true)},
+          style:{border:`2px dashed ${dragOver?"#38bdf8":"#334155"}`,borderRadius:10,padding:"24px 20px",textAlign:"center",background:dragOver?"#0f2744":"transparent",cursor:"pointer",transition:"all 0.2s"},
+          onDragOver:ev=>{ev.preventDefault();setDragOver(true);},
           onDragLeave:()=>setDragOver(false),
           onDrop:ev=>{ev.preventDefault();setDragOver(false);const f=ev.dataTransfer.files[0];if(f)processFile(f);},
           onClick:()=>document.getElementById("site-upload-input").click()
         },
           processing ? e("div",{style:{color:"#38bdf8"}},"⟳ Processando...") :
-          e("div",{style:{color:"#94a3b8",fontSize:13}},
-            "📄 Arraste o .xlsx aqui ou ",e("span",{style:{color:"#38bdf8",textDecoration:"underline"}},"clique para selecionar")
-          ),
-          e("input",{id:"site-upload-input",type:"file",accept:".xlsx,.xls,.csv",style:{display:"none"},
-            onChange:ev=>{const f=ev.target.files[0];if(f)processFile(f);}})
+          e("div",{style:{color:"#94a3b8",fontSize:13}},"📄 Arraste o arquivo aqui ou ",e("span",{style:{color:"#38bdf8",textDecoration:"underline"}},"clique para selecionar")),
+          e("input",{id:"site-upload-input",type:"file",accept:".xlsx,.xls,.csv",style:{display:"none"},onChange:ev=>{const f=ev.target.files[0];if(f)processFile(f);}})
         ),
-
-        // Upload results preview
         uploadResults && !uploadResults.error && e("div",{style:{marginTop:14}},
           e("div",{style:{display:"flex",gap:10,marginBottom:10,flexWrap:"wrap"}},
-            e("span",{style:{background:"#0d2d1a",border:"1px solid #22c55e",borderRadius:8,padding:"4px 12px",fontSize:12,color:"#22c55e",fontWeight:700}},
-              "✓ "+uploadResults.updates.length+" para atualizar"
-            ),
-            uploadResults.notFound.length>0&&e("span",{style:{background:"#2d0a0a",border:"1px solid #ef4444",borderRadius:8,padding:"4px 12px",fontSize:12,color:"#ef4444",fontWeight:700}},
-              "✗ "+uploadResults.notFound.length+" não encontrados"
-            ),
-            uploadResults.noChange.length>0&&e("span",{style:{background:"#1e293b",border:"1px solid #475569",borderRadius:8,padding:"4px 12px",fontSize:12,color:"#64748b",fontWeight:700}},
-              "= "+uploadResults.noChange.length+" sem mudança"
-            )
+            e("span",{style:{background:"#0d2d1a",border:"1px solid #22c55e",borderRadius:8,padding:"4px 12px",fontSize:12,color:"#22c55e",fontWeight:700}},"✓ "+uploadResults.updates.length+" para atualizar"),
+            uploadResults.notFound.length>0&&e("span",{style:{background:"#2d0a0a",border:"1px solid #ef4444",borderRadius:8,padding:"4px 12px",fontSize:12,color:"#ef4444",fontWeight:700}},"✗ "+uploadResults.notFound.length+" não encontrados"),
+            uploadResults.noChange.length>0&&e("span",{style:{background:"#1e293b",border:"1px solid #475569",borderRadius:8,padding:"4px 12px",fontSize:12,color:"#64748b",fontWeight:700}},"= "+uploadResults.noChange.length+" sem mudança")
           ),
-          uploadResults.updates.length>0 && e("div",{style:{maxHeight:160,overflowY:"auto",marginBottom:10,background:"#0f172a",borderRadius:8,padding:"8px 12px"}},
+          uploadResults.updates.length>0&&e("div",{style:{maxHeight:150,overflowY:"auto",marginBottom:10,background:"#0f172a",borderRadius:8,padding:"8px 12px"}},
             ...uploadResults.updates.map((u,i)=>e("div",{key:i,style:{fontSize:12,padding:"3px 0",borderBottom:"1px solid #1e293b",display:"flex",gap:8,flexWrap:"wrap"}},
               e("span",{style:{fontWeight:600,color:"#e2e8f0",flex:1}},u.name),
-              e("span",{style:{color:"#ef4444"}},u.oldSite),
-              e("span",{style:{color:"#64748b"}},"→"),
-              e("span",{style:{color:"#22c55e"}},u.newSite||"—"),
-              e("span",{style:{color:"#475569",fontSize:11}},u.date)
+              e("span",{style:{color:"#ef4444"}},u.oldSite),e("span",{style:{color:"#64748b"}},"→"),e("span",{style:{color:"#22c55e"}},u.newSite||"—"),e("span",{style:{color:"#475569",fontSize:11}},u.date)
             ))
           ),
-          uploadResults.notFound.length>0&&e("div",{style:{fontSize:12,color:"#ef4444",marginBottom:8}},
-            "Não encontrados: "+uploadResults.notFound.join(", ")
-          ),
+          uploadResults.notFound.length>0&&e("div",{style:{fontSize:12,color:"#ef4444",marginBottom:8}},"Não encontrados: "+uploadResults.notFound.join(", ")),
           e("div",{style:{display:"flex",gap:8}},
-            uploadResults.updates.length>0&&e("button",{style:s.btn("success"),onClick:applyUpload},
-              "✓ Confirmar "+uploadResults.updates.length+" atualizações"
-            ),
+            uploadResults.updates.length>0&&e("button",{style:s.btn("success"),onClick:applyUpload},"✓ Confirmar "+uploadResults.updates.length+" atualizações"),
             e("button",{style:s.btn("danger"),onClick:()=>setUploadResults(null)},"Cancelar")
           )
         ),
-        uploadResults?.error && e("div",{style:{color:"#ef4444",marginTop:10,fontSize:13}},"Erro: "+uploadResults.error)
+        uploadResults?.error&&e("div",{style:{color:"#ef4444",marginTop:10,fontSize:13}},"Erro: "+uploadResults.error)
       ),
 
-      // ── Quick edit table ──
+      // Quick edit table
       e("div",{style:s.card},
-        e("div",{style:{fontWeight:700,fontSize:14,marginBottom:12}},
-          "✏️ "+(CURRENT_LANG==="en"?"Quick edit":"Edição rápida")
-        ),
+        e("div",{style:{fontWeight:700,fontSize:14,marginBottom:12}},"✏️ Edição rápida"),
         e("div",{style:{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap",alignItems:"center"}},
-          e("input",{style:{...s.input,flex:1,minWidth:180},placeholder:"🔍 Buscar nome ou local...",
-            value:siteSearch,onChange:ev=>setSiteSearch(ev.target.value)}),
-          ...(["ALL","ACTIVE","INACTIVE"].map(v=>e("button",{key:v,
-            style:{padding:"6px 14px",borderRadius:20,border:"none",cursor:"pointer",fontWeight:600,fontSize:12,
-              background:siteStatusFilter===v?"#38bdf8":"#1e293b",
-              color:siteStatusFilter===v?"#0f172a":"#94a3b8",
-              border:siteStatusFilter===v?"none":"1px solid #334155"},
-            onClick:()=>setSiteStatusFilter(v)},
-            v==="ALL"?"Todos":v==="ACTIVE"?"Ativos":"Inativos"
-          ))),
+          e("input",{style:{...s.input,flex:1,minWidth:180},placeholder:"🔍 Buscar nome ou local...",value:siteSearch,onChange:ev=>setSiteSearch(ev.target.value)}),
+          ...(["ALL","ACTIVE","INACTIVE"].map(v=>e("button",{key:v,style:{padding:"6px 14px",borderRadius:20,border:siteStatusFilter===v?"none":"1px solid #334155",cursor:"pointer",fontWeight:600,fontSize:12,background:siteStatusFilter===v?"#38bdf8":"#1e293b",color:siteStatusFilter===v?"#0f172a":"#94a3b8"},onClick:()=>setSiteStatusFilter(v)},v==="ALL"?"Todos":v==="ACTIVE"?"Ativos":"Inativos"))),
           e("span",{style:{color:"#64748b",fontSize:12}},filtered.length+" funcionários")
         ),
-
         e("div",{style:{overflowX:"auto"}},
           e("table",{style:{width:"100%",borderCollapse:"collapse",fontSize:13}},
             e("thead",null,e("tr",null,
-              e("th",{style:s.th},"Nome"),
-              e("th",{style:s.th},"Status"),
-              e("th",{style:s.th},"UF"),
-              e("th",{style:s.th},"Local Atual"),
-              e("th",{style:s.th},"Novo Local"),
-              e("th",{style:s.th},"Histórico"),
-              e("th",{style:s.th},"")
+              e("th",{style:s.th},"Nome"),e("th",{style:s.th},"Status"),e("th",{style:s.th},"UF"),
+              e("th",{style:s.th},"Local atual"),e("th",{style:s.th},"Novo local"),e("th",{style:s.th},"Histórico"),e("th",{style:s.th},"")
             )),
-            e("tbody",null,
-              ...filtered.map(emp => {
-                const editing = editingRows.hasOwnProperty(emp.name);
-                const currentVal = editing ? editingRows[emp.name] : (emp.working_site||"");
-                const changed = editing && currentVal !== (emp.working_site||"");
-                const histLen = (emp.site_history||[]).length;
-                return e("tr",{key:emp.name,style:{background:changed?"#1e3a52":""}},
-                  e("td",{style:{...s.td,fontWeight:600,color:"#38bdf8",cursor:"pointer"},onClick:()=>openEmp(emp)},emp.name),
-                  e("td",{style:s.td},e("span",{style:s.tag(emp.contract_status==="ACTIVE")},emp.contract_status||"—")),
-                  e("td",{style:{...s.td,color:"#94a3b8"}},emp.state||"—"),
-                  e("td",{style:{...s.td,color:"#64748b"}},emp.working_site||"—"),
-                  e("td",{style:s.td},
-                    e("div",{style:{display:"flex",gap:6,alignItems:"center"}},
-                      e("input",{
-                        style:{...s.input,width:180,padding:"5px 10px",fontSize:12,
-                          border:changed?"1px solid #38bdf8":"1px solid #334155"},
-                        list:"known-sites-list",
-                        value:currentVal,
-                        onChange:ev=>updateSite(emp.name, ev.target.value),
-                        onKeyDown:ev=>{if(ev.key==="Enter")saveSite(emp);}
-                      }),
-                      e("datalist",{id:"known-sites-list"},
-                        ...knownSites.map(site=>e("option",{key:site,value:site}))
-                      )
-                    )
-                  ),
-                  e("td",{style:s.td},
-                    histLen>0 ? e("button",{
-                      style:{...s.btn(),fontSize:11,padding:"3px 10px"},
-                      onClick:()=>setHistoryEmp(historyEmp===emp.name?null:emp.name)
-                    },"📋 "+histLen) : e("span",{style:{color:"#334155",fontSize:12}},"—")
-                  ),
-                  e("td",{style:s.td},
-                    changed && e("button",{style:{...s.btn("success"),fontSize:11,padding:"4px 10px"},onClick:()=>saveSite(emp)},"✓")
+            e("tbody",null,...filtered.map(emp => {
+              const editing = editingRows.hasOwnProperty(emp.name);
+              const currentVal = editing ? editingRows[emp.name] : (emp.working_site||"");
+              const changed = editing && currentVal !== (emp.working_site||"");
+              const histLen = (emp.site_history||[]).length;
+              return e("tr",{key:emp.name,style:{background:changed?"#1e3a52":""}},
+                e("td",{style:{...s.td,fontWeight:600,color:"#38bdf8",cursor:"pointer"},onClick:()=>openEmp(emp)},emp.name),
+                e("td",{style:s.td},e("span",{style:s.tag(emp.contract_status==="ACTIVE")},emp.contract_status||"—")),
+                e("td",{style:{...s.td,color:"#94a3b8"}},emp.state||"—"),
+                e("td",{style:{...s.td,color:"#64748b"}},emp.working_site||"—"),
+                e("td",{style:s.td},
+                  e("div",{style:{display:"flex",gap:6,alignItems:"center"}},
+                    e("input",{style:{...s.input,width:180,padding:"5px 10px",fontSize:12,border:changed?"1px solid #38bdf8":"1px solid #334155"},list:"known-sites-list",value:currentVal,
+                      onChange:ev=>setEditingRows(p=>({...p,[emp.name]:ev.target.value})),
+                      onKeyDown:ev=>{if(ev.key==="Enter")saveSite(emp);}}),
+                    e("datalist",{id:"known-sites-list"},...knownSites.map(site=>e("option",{key:site,value:site})))
                   )
-                );
-              })
-            )
+                ),
+                e("td",{style:s.td},
+                  histLen>0?e("button",{style:{...s.btn(),fontSize:11,padding:"3px 10px"},onClick:()=>setHistoryEmp(historyEmp===emp.name?null:emp.name)},"📋 "+histLen):e("span",{style:{color:"#334155",fontSize:12}},"—")
+                ),
+                e("td",{style:s.td},changed&&e("button",{style:{...s.btn("success"),fontSize:11,padding:"4px 10px"},onClick:()=>saveSite(emp)},"✓"))
+              );
+            }))
           )
         ),
-
-        // Inline history panel
         historyEmp && (() => {
           const emp = employees.find(e=>e.name===historyEmp);
           if (!emp) return null;
           const hist = [...(emp.site_history||[])].reverse();
           return e("div",{style:{marginTop:14,padding:14,background:"#0f172a",borderRadius:8,border:"1px solid #334155"}},
             e("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}},
-              e("div",{style:{fontWeight:700,fontSize:13,color:"#38bdf8"}},"📋 Histórico de obra — "+historyEmp),
+              e("div",{style:{fontWeight:700,fontSize:13,color:"#38bdf8"}},"📋 Histórico — "+historyEmp),
               e("button",{style:{...s.btn(),fontSize:11,padding:"3px 8px"},onClick:()=>setHistoryEmp(null)},"✕")
             ),
             e("table",{style:{width:"100%",borderCollapse:"collapse",fontSize:12}},
-              e("thead",null,e("tr",null,
-                e("th",{style:{...s.th,fontSize:11}},"Data"),
-                e("th",{style:{...s.th,fontSize:11}},"De"),
-                e("th",{style:{...s.th,fontSize:11}},"Para")
-              )),
-              e("tbody",null,
-                ...hist.map((h,i)=>e("tr",{key:i},
-                  e("td",{style:{...s.td,color:"#64748b"}},h.date||"—"),
-                  e("td",{style:{...s.td,color:"#ef4444"}},h.from||"—"),
-                  e("td",{style:{...s.td,color:"#22c55e"}},h.to||"—")
-                ))
-              )
+              e("thead",null,e("tr",null,e("th",{style:{...s.th,fontSize:11}},"Data"),e("th",{style:{...s.th,fontSize:11}},"De"),e("th",{style:{...s.th,fontSize:11}},"Para"))),
+              e("tbody",null,...hist.map((h,i)=>e("tr",{key:i},e("td",{style:{...s.td,color:"#64748b"}},h.date||"—"),e("td",{style:{...s.td,color:"#ef4444"}},h.from||"—"),e("td",{style:{...s.td,color:"#22c55e"}},h.to||"—"))))
             )
           );
         })()
@@ -3287,6 +3059,7 @@ function App() {
   }
 
   // ─ Residents (Search by distance) ─
+
   function Residents() {
     const address = residents_address, setAddress = residents_setAddress;
     const radius = residents_radius, setRadius = residents_setRadius;
